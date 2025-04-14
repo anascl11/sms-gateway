@@ -2,7 +2,6 @@ from flask import Flask, render_template, redirect, url_for, request, session, f
 from werkzeug.security import generate_password_hash, check_password_hash
 import mysql.connector
 import modem
-from threading import Thread
 from datetime import datetime
 import time
 import secrets
@@ -16,9 +15,9 @@ app.secret_key = secrets.token_hex(32)
 
 # database connection
 conn = mysql.connector.connect(
-    host = "192.168.10.4",
-    user = "anas",
-    password = "123",
+    host = "127.0.0.1",
+    user = "root",
+    password = "atrait11!!",
     database = "sms_gateway"
 )
 cursor = conn.cursor(dictionary=True)
@@ -90,6 +89,32 @@ def inbox():
     cursor.execute("SELECT * FROM incoming_messages ORDER BY received_at DESC")
     messages = cursor.fetchall()
     return render_template("inbox.html", messages=messages)
+
+# check new messages
+@app.route("/check_messages", methods=["POST"])
+def check_messages():
+    if 'user_id' not in session:
+        return redirect(url_for("login"))
+    
+    messages = modem.read_all_sms()
+    count = 0
+    for msg in messages:
+        raw_ts = msg['timestamp']  # e.g., '25/04/11,10:15:25+00'
+        # Parse modem timestamp to MySQL-compatible format
+        ts_obj = datetime.strptime(raw_ts.split('+')[0], "%y/%m/%d,%H:%M:%S")
+        mysql_ts = ts_obj.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Check for duplicate and Use converted timestamp in both SELECT and INSERT
+        cursor.execute("SELECT * FROM incoming_messages WHERE sender = %s AND message = %s AND received_at = %s", 
+                      (msg['sender'], msg['content'], mysql_ts))
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO incoming_messages (sender, message, received_at) VALUES (%s, %s, %s)", 
+                         (msg['sender'], msg['content'], mysql_ts))
+            count += 1
+    conn.commit()
+    
+    flash(f'{count} new messages received', 'info')
+    return redirect(url_for('inbox'))
 
 # admin panel
 @app.route("/admin", methods=["GET", "POST"])
@@ -184,6 +209,4 @@ def api_sent_sms():
 
 # run the app
 if __name__ == '__main__':
-    reader_thread = Thread(target=sms_reader, daemon=True)
-    reader_thread.start()
     app.run(host='0.0.0.0', port=5000, debug=True)
