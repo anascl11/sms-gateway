@@ -5,7 +5,7 @@ import re
 ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=2)
 time.sleep(1)
 
-# Send SMS
+# send sms
 def send_sms(number, message):
     ser.write(f'AT+CMGS="{number}"\r'.encode())
     time.sleep(1)
@@ -14,7 +14,7 @@ def send_sms(number, message):
     ser.write(b'\x1A')
     time.sleep(3)
 
-# Read All SMS with proper formatting
+# read all sms with proper formatting
 def read_all_sms():
     ser.write(b'AT+CMGL="ALL"\r')
     time.sleep(2)
@@ -41,5 +41,5 @@ def read_all_sms():
         else:
             i += 1
     return messages
-    # Each SMS is stored as a dictionary with these keys index, status, sender, timestamp, content
-    # All SMS'S are collected in the messages list
+    # each sms is stored as a dictionary with these keys index, status, sender, timestamp, content
+    # all sms's are collected in the messages list
