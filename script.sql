@@ -1,5 +1,9 @@
 create database sms_gateway;
 
+create user 'atrait'@'%' identified by 'atrait11!!';
+grant all privileges on sms_gateway.* to 'atrait'@'%';
+flush privileges;
+
 use sms_gateway;
 
 create table users (
@@ -17,6 +21,13 @@ create table incoming_messages (
     received_at datetime default current_timestamp
 );
 
+create table api_clients (
+    id int auto_increment primary key,
+    name varchar(50) not null unique,
+    api_key varchar(255) not null unique,
+    created_at datetime default current_timestamp
+);
+
 create table outgoing_messages (
     id int auto_increment primary key,
     receiver varchar(20) not null,
@@ -26,11 +37,4 @@ create table outgoing_messages (
     api_client_id int null,
     foreign key (user_id) references users(id),
     foreign key (api_client_id) references api_clients(id)
-);
-
-create table api_clients (
-    id int auto_increment primary key,
-    name varchar(50) not null unique,
-    api_key varchar(255) not null unique,
-    created_at datetime default current_timestamp
 );
