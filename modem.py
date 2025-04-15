@@ -2,7 +2,7 @@ import serial
 import time
 import re
 
-ser = serial.Serial('/dev/ttyUSB1', 115200, timeout=2)
+ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=2)
 time.sleep(1)
 
 # Send SMS
