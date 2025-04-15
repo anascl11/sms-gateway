@@ -32,10 +32,10 @@ A web-based SMS Gateway built with Flask, MySQL, and PySerial, allowing users to
     * X-API-KEY: your_api_key
   - Body :
     {
-       "receiver": "+212xxxxxxxxx",
+       "receiver": "+2126xxxxxxxx",
         "message": "Hello from the API"
     }
-  - Endpoint : POST /api/read_sms
-    - Headers : 
-      * Content-Type: application/json
-      * X-API-KEY: your_api_key
+- Endpoint : POST /api/read_sms
+  - Headers : 
+    * Content-Type: application/json
+    * X-API-KEY: your_api_key
