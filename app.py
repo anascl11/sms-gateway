@@ -15,8 +15,8 @@ app.secret_key = secrets.token_hex(32)
 
 # database connection
 conn = mysql.connector.connect(
-    host = "127.0.0.1",
-    user = "root",
+    host = "192.168.10.6",
+    user = "atrait",
     password = "atrait11!!",
     database = "sms_gateway"
 )
@@ -67,20 +67,7 @@ def dashboard():
     cursor.execute("SELECT * FROM outgoing_messages WHERE user_id = %s ORDER BY sent_at DESC", (session['user_id'],))
     sent_sms = cursor.fetchall()
     return render_template('dashboard.html', sent_sms=sent_sms)
-
-# sms reader thread
-def sms_reader():
-    while True:
-        messages = modem.read_all_sms()
-        for msg in messages:
-             # Check for duplicate
-            cursor.execute("SELECT * FROM incoming_messages WHERE sender = %s AND message = %s AND received_at = %s", (msg['sender'], msg['content'], msg['timestamp']))
-            if not cursor.fetchone():
-                # Insert new message into the database
-                cursor.execute("INSERT INTO incoming_messages (sender, message, received_at) VALUES (%s, %s, %s)", (msg['sender'], msg['content'], msg['timestamp']))
-            conn.commit()
-        time.sleep(10)  # wait 10 seconds before checking again
-
+    
 # inbox
 @app.route("/inbox")
 def inbox():
