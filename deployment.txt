@@ -1,0 +1,35 @@
++ Gunicorn and Nginx are often used together to serve Python web applications (like Django or Flask) in production environments 
+  
++ Gunicorn : A Python WSGI HTTP Server (Web Server Gateway Interface) it Acts as an application server that runs Python web applications in production
+- run the flask app in background using on process worker :
+cd /sms_gateway
+gunicorn --workers 1 --bind 127.0.0.1:8000 --daemon --access-logfile /var/log/gunicorn/access.log --error-logfile /var/log/gunicorn/error.log app:app
+  
++ Nginx : A high-performance web server and reverse proxy it Acts as the public-facing server that clients connect to
+- generate a self signed certificate :
+mkdir -p /etc/ssl/private
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/private/sms_gateway.key -out /etc/ssl/certs/sms_gateway.crt
+- create configuration file for the flask app /etc/nginx/conf.d/sms_gateway.conf : 
+server {
+  listen 443 ssl;
+  server_name 192.168.0.134;
+
+  ssl_certificate     /etc/ssl/certs/sms_gateway.crt;
+  ssl_certificate_key /etc/ssl/private/sms_gateway.key;
+
+  access_log  /var/log/nginx/access.log;
+  error_log   /var/log/nginx/error.log;
+
+  location / {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+}
+- create the configuration file for https redirection /etc/nginx/conf.d/redirection.conf :
+  server {
+    listen 80;
+    server_name 192.168.0.134;
+
+    return 301 https://$host$request_uri;
+}
