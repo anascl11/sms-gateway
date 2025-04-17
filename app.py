@@ -6,6 +6,7 @@ from datetime import datetime
 import time
 import secrets
 import hashlib
+import logging
 
 # create flask app
 app = Flask(__name__)
@@ -13,14 +14,29 @@ app = Flask(__name__)
 # app secret key for session management
 app.secret_key = secrets.token_hex(32)
 
+# Configure basic logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # database connection
-conn = mysql.connector.connect(
-    host = "192.168.10.6",
-    user = "atrait",
-    password = "atrait11!!",
-    database = "sms_gateway"
-)
-cursor = conn.cursor(dictionary=True)
+def get_db_connection():
+    servers = [
+        "192.168.10.6", # master 1
+        "192.168.10.7"  # master 2
+    ]
+    for server in servers:
+        try:
+            conn = mysql.connector.connect(
+                host = server,
+                user = "atrait",
+                password = "atrait11!!",
+                database = "sms_gateway"
+                )
+            logger.info(f"Connected to MySQL at {server}")
+            return conn
+        except mysql.connector.Error as e:
+            logger.warning(f"Failed to connect to {server}: {e}")
+            continue
 
 # redirect from root to login page
 @app.route("/")
@@ -30,6 +46,8 @@ def index():
 # login system
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
     if request.method == "POST":
         username = request.form["username"]
         password = request.form["password"]
@@ -41,7 +59,7 @@ def login():
             session["is_admin"] = user["is_admin"]
             flash('Login successful!', 'success')
             return redirect(url_for('dashboard'))
-    
+
         flash('Invalid credentials', 'danger')
     return render_template("login.html")
 
@@ -53,6 +71,8 @@ def logout():
 # dashboard
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
     if 'user_id' not in session:
         return redirect(url_for("login"))
     if request.method == 'POST':
@@ -67,10 +87,12 @@ def dashboard():
     cursor.execute("SELECT * FROM outgoing_messages WHERE user_id = %s ORDER BY sent_at DESC", (session['user_id'],))
     sent_sms = cursor.fetchall()
     return render_template('dashboard.html', sent_sms=sent_sms)
-    
+
 # inbox
 @app.route("/inbox")
 def inbox():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
     if 'user_id' not in session:
         return redirect(url_for("login"))
     cursor.execute("SELECT * FROM incoming_messages ORDER BY received_at DESC")
@@ -80,9 +102,11 @@ def inbox():
 # check new messages
 @app.route("/check_messages", methods=["POST"])
 def check_messages():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
     if 'user_id' not in session:
         return redirect(url_for("login"))
-    
+
     messages = modem.read_all_sms()
     count = 0
     for msg in messages:
@@ -90,22 +114,24 @@ def check_messages():
         # Parse modem timestamp to MySQL-compatible format
         ts_obj = datetime.strptime(raw_ts.split('+')[0], "%y/%m/%d,%H:%M:%S")
         mysql_ts = ts_obj.strftime("%Y-%m-%d %H:%M:%S")
-        
+
         # Check for duplicate and Use converted timestamp in both SELECT and INSERT
-        cursor.execute("SELECT * FROM incoming_messages WHERE sender = %s AND message = %s AND received_at = %s", 
+        cursor.execute("SELECT * FROM incoming_messages WHERE sender = %s AND message = %s AND received_at = %s",
                       (msg['sender'], msg['content'], mysql_ts))
         if not cursor.fetchone():
-            cursor.execute("INSERT INTO incoming_messages (sender, message, received_at) VALUES (%s, %s, %s)", 
+            cursor.execute("INSERT INTO incoming_messages (sender, message, received_at) VALUES (%s, %s, %s)",
                          (msg['sender'], msg['content'], mysql_ts))
             count += 1
     conn.commit()
-    
+
     flash(f'{count} new messages received', 'info')
     return redirect(url_for('inbox'))
 
 # admin panel
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
     if 'user_id' not in session:
         return redirect(url_for('login'))
     # check if user is admin
@@ -151,6 +177,8 @@ def admin():
 # api endpoints
 @app.route('/api/send_sms', methods=['POST'])
 def api_send_sms():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
     api_key = request.headers.get('X-API-KEY')
     if not api_key:
         return jsonify({'error': 'Missing API key'}), 400
@@ -179,6 +207,8 @@ def api_send_sms():
 
 @app.route('/api/read_sms', methods=['GET'])
 def api_sent_sms():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
     api_key = request.headers.get('X-API-KEY')
     if not api_key:
         return jsonify({'error': 'Missing API key'}), 400
