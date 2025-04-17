@@ -27,9 +27,8 @@ server {
   }
 }
 - create the configuration file for https redirection /etc/nginx/conf.d/redirection.conf :
-  server {
-    listen 80;
-    server_name 192.168.0.134;
-
-    return 301 https://$host$request_uri;
+server {
+  listen 80;
+  server_name 192.168.0.134;
+  return 301 https://$host$request_uri;
 }
