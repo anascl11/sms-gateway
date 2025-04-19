@@ -1,130 +1,229 @@
-import serial
-import time
-import re
+from flask import Flask, render_template, redirect, url_for, request, session, flash, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
 import mysql.connector
+import modem
 from datetime import datetime
-import binascii
+import time
+import secrets
+import hashlib
 import logging
 
-# Configuration
-device_id = 11
-db_config = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'atrait11!!',
-    'database': 'GSM_AT',
-    'charset': 'utf8mb4'
-}
-serial_port = '/dev/ttyUSB0'
-baudrate = 115200
+# create flask app
+app = Flask(__name__)
 
-# Set up logging
-logging.basicConfig(
-    filename='app.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    encoding='utf-8'
-)
+# app secret key for session management
+app.secret_key = secrets.token_hex(32)
 
-# Change timestamp format to match the database format
-def parse_timestamp(ts_str):
-    match = re.match(r'(\d{2}/\d{2}/\d{2}),(\d{2}:\d{2}:\d{2})', ts_str)
-    if match:
-        dt_str = f"{match.group(1)} {match.group(2)}"
-        return datetime.strptime(dt_str, "%y/%m/%d %H:%M:%S")
-    return None
+# Configure basic logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Encode SMS content to UCS2 format (Unicode)
-def encode_sms_ucs2(text):
-    utf16 = text.encode("utf-16be")
-    byte_count = len(utf16)
-    hex_encoded = binascii.hexlify(utf16).decode().upper()
-    return f"{byte_count:02X}{hex_encoded}"
+# database connection
+def get_db_connection():
+    servers = [
+        "192.168.10.6", # master 1
+        "192.168.10.7"  # master 2
+    ]
+    for server in servers:
+        try:
+            conn = mysql.connector.connect(
+                host = server,
+                user = "atrait",
+                password = "atrait11!!",
+                database = "sms_gateway"
+                )
+            logger.info(f"Connected to MySQL at {server}")
+            return conn
+        except mysql.connector.Error as e:
+            logger.warning(f"Failed to connect to {server}: {e}")
+            continue
 
-# Read all SMS messages from the modem
-def read_all_sms():
-    ser.write(b'AT+CMGF=1\r') 
-    time.sleep(1)
-    ser.write(b'AT+CMGL="ALL"\r')
-    time.sleep(2)
-    response = ser.read_all().decode(errors='ignore')
-    lines = response.splitlines()
-    messages = []
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        if line.startswith("+CMGL:") and i + 1 < len(lines):
-            match = re.match(r'\+CMGL: (\d+),"(.*?)","(.*?)",,"(.*?)"', line)
-            if match:
-                messages.append({
-                    'index': match.group(1),
-                    'status': match.group(2),
-                    'sender': match.group(3),
-                    'timestamp': match.group(4),
-                    'content': lines[i + 1].strip()
-                })
-            i += 2
-        else:
-            i += 1
-    return messages
+# redirect from root to login page
+@app.route("/")
+def index():
+    return redirect(url_for("login"))
 
-# Use with statements for serial and db
-with serial.Serial(serial_port, baudrate, timeout=2) as ser, \
-     mysql.connector.connect(**db_config) as conn:
-    time.sleep(1)
-    ser.write(b'ATZ\r')  # Reset the modem
-    time.sleep(1)
-    cursor = conn.cursor()
+# login system
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        user = cursor.fetchone()
+        if user and check_password_hash(user["password"], password):
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            session["is_admin"] = user["is_admin"]
+            flash('Login successful!', 'success')
+            return redirect(url_for('dashboard'))
 
-    logging.info("SMS Import script started.")
+        flash('Invalid credentials', 'danger')
+    return render_template("login.html")
 
-    # Main loop to read SMS and insert into the database
-    while True:
-        sms_list = read_all_sms()
-        for sms in sms_list:
-            content = sms['content'].strip()
-            sender = sms['sender'].strip()
-            timestamp_str = sms['timestamp'].strip()
-            
-            # Log the SMS content
-            logging.info(f"Processing SMS - Sender: {sender} | Timestamp: {timestamp_str} | Content: {content}")
-            
-            if 'stop' in content.lower():
-                sms_time = parse_timestamp(timestamp_str)
-                if not sms_time:
-                    logging.warning(f"Skipping SMS from {sender} due to invalid timestamp.")
-                    continue
-                
-                check_query = "SELECT COUNT(*) FROM GSM_InSMS WHERE SenderNumber = %s AND HDentree = %s"
-                cursor.execute(check_query, (sender, sms_time))
-                exists = cursor.fetchone()[0]
-                
-                if exists == 0:
-                    encoded = encode_sms_ucs2(content)
-                    insert_query = """
-                        INSERT INTO GSM_InSMS (
-                            ID_Active_Device, SenderNumber, ContentEncoded, ContentDecoded,
-                            CodingType, ClassType, Stat, HDentree, SMSCNumber,
-                            LastUpdateRow, MultiPart, NbParts
-                        ) VALUES (%s, %s, %s, %s, %s, 'NORMAL', 1, %s, 'PAS ENCORE DEFINI', NOW(), 'FALSE', 1)
-                    """
-                    values = (
-                        device_id, sender, encoded, content, 'UNICODE', sms_time
-                    )
-                    cursor.execute(insert_query, values)
-                    conn.commit()
-                    ser.write(f'AT+CMGD={sms["index"]}\r'.encode())
-                    time.sleep(0.5)
-                    
-                    logging.info(f"Inserted SMS from {sender} into the database.")
-                else:
-                    logging.info(f"Skipping duplicate SMS from {sender} (already in database).")
-                    ser.write(f'AT+CMGD={sms["index"]}\r'.encode())
-                    time.sleep(0.5)
-            else:
-                logging.info(f"Skipping SMS from {sender} as it does not contain 'stop'.")
-                ser.write(f'AT+CMGD={sms["index"]}\r'.encode())
-                time.sleep(0.5)
-        
-        time.sleep(10)  # Wait for 10 seconds before checking again
-        logging.info("Waiting for the next check...")
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+# dashboard
+@app.route("/dashboard", methods=["GET", "POST"])
+def dashboard():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    if 'user_id' not in session:
+        return redirect(url_for("login"))
+    if request.method == 'POST':
+        receiver = request.form['receiver']
+        message = request.form['message']
+        user_id = session['user_id']
+        cursor.execute("INSERT INTO outgoing_messages (receiver, message, sent_at, user_id, api_client_id) VALUES (%s, %s, %s, %s, NULL)", (receiver, message, datetime.now(), user_id))
+        conn.commit()
+        modem.send_sms(receiver, message)
+        flash('SMS sent successfully!', 'success')
+        return redirect(url_for('dashboard'))
+    cursor.execute("SELECT * FROM outgoing_messages WHERE user_id = %s ORDER BY sent_at DESC", (session['user_id'],))
+    sent_sms = cursor.fetchall()
+    return render_template('dashboard.html', sent_sms=sent_sms)
+
+# inbox
+@app.route("/inbox")
+def inbox():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    if 'user_id' not in session:
+        return redirect(url_for("login"))
+    cursor.execute("SELECT * FROM incoming_messages ORDER BY received_at DESC")
+    messages = cursor.fetchall()
+    return render_template("inbox.html", messages=messages)
+
+# check new messages
+@app.route("/check_messages", methods=["POST"])
+def check_messages():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    if 'user_id' not in session:
+        return redirect(url_for("login"))
+
+    messages = modem.read_all_sms()
+    count = 0
+    for msg in messages:
+        raw_ts = msg['timestamp']  # e.g., '25/04/11,10:15:25+00'
+        # Parse modem timestamp to MySQL-compatible format
+        ts_obj = datetime.strptime(raw_ts.split('+')[0], "%y/%m/%d,%H:%M:%S")
+        mysql_ts = ts_obj.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Check for duplicate and Use converted timestamp in both SELECT and INSERT
+        cursor.execute("SELECT * FROM incoming_messages WHERE sender = %s AND message = %s AND received_at = %s",
+                      (msg['sender'], msg['content'], mysql_ts))
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO incoming_messages (sender, message, received_at) VALUES (%s, %s, %s)",
+                         (msg['sender'], msg['content'], mysql_ts))
+            count += 1
+    conn.commit()
+
+    flash(f'{count} new messages received', 'info')
+    return redirect(url_for('inbox'))
+
+# admin panel
+@app.route("/admin", methods=["GET", "POST"])
+def admin():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    # check if user is admin
+    cursor.execute("SELECT is_admin FROM users WHERE id = %s", (session['user_id'],))
+    user = cursor.fetchone()
+    if not user or not user['is_admin']:
+        flash('Access denied: Admins only.', 'danger')
+        return redirect(url_for('dashboard'))
+    api_client_name = None   # variable to show api clint name
+    plain_api_key = None     # variable to show un-hashed key after creation
+    if request.method == 'POST':
+        if 'new_user' in request.form:
+            username = request.form['username']
+            password = generate_password_hash(request.form['password'], method='pbkdf2:sha256')
+            cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (%s, %s, %s)",(username, password, False))
+            conn.commit()
+            flash('User created successfully.', 'success')
+        elif 'delete_user' in request.form:
+            user_id = request.form['delete_user']
+            cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            conn.commit()
+            flash('User deleted.', 'info')
+        elif 'new_api' in request.form:
+            name = request.form['name']
+            api_client_name = name
+            plain_api_key = secrets.token_hex(32)
+            api_key_hashed = hashlib.sha256(plain_api_key.encode()).hexdigest()
+            cursor.execute("INSERT INTO api_clients (name, api_key) VALUES (%s, %s)", (name, api_key_hashed))
+            conn.commit()
+            flash('API Client created. Save this API key securely.', 'success')
+        elif 'delete_api' in request.form:
+            api_id = request.form['delete_api']
+            cursor.execute("DELETE FROM api_clients WHERE id = %s", (api_id,))
+            conn.commit()
+            flash('API Client deleted.', 'info')
+    # Get users and APIs
+    cursor.execute("SELECT id, username, is_admin FROM users")
+    users = cursor.fetchall()
+    cursor.execute("SELECT id, name FROM api_clients")
+    apis = cursor.fetchall()
+    return render_template("admin.html", users=users, apis=apis, api_client_name=api_client_name, new_api_key=plain_api_key)
+
+# api endpoints
+@app.route('/api/send_sms', methods=['POST'])
+def api_send_sms():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    api_key = request.headers.get('X-API-KEY')
+    if not api_key:
+        return jsonify({'error': 'Missing API key'}), 400
+
+    # Hash the incoming API key for comparison
+    hashed_key = hashlib.sha256(api_key.encode()).hexdigest()
+
+    # Find the client by hashed key
+    cursor.execute("SELECT id FROM api_clients WHERE api_key = %s", (hashed_key,))
+    client = cursor.fetchone()
+    if not client:
+        return jsonify({'error': 'Invalid API key'}), 403
+
+    data = request.get_json()
+    receiver = data.get('receiver')
+    message = data.get('message')
+
+    if not receiver or not message:
+        return jsonify({'error': 'Missing receiver or message'}), 400
+
+    # Store message (assumes separate modem handler handles actual send)
+    cursor.execute("INSERT INTO outgoing_messages (receiver, message, sent_at, user_id, api_client_id) VALUES (%s, %s, %s, NULL, %s)", (receiver, message, datetime.now(), client['id']))
+    conn.commit()
+    modem.send_sms(receiver, message)
+    return jsonify({'status': 'SMS sent successfully!'}), 200
+
+@app.route('/api/read_sms', methods=['GET'])
+def api_sent_sms():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    api_key = request.headers.get('X-API-KEY')
+    if not api_key:
+        return jsonify({'error': 'Missing API key'}), 400
+
+    hashed_key = hashlib.sha256(api_key.encode()).hexdigest()
+    cursor.execute("SELECT id FROM api_clients WHERE api_key = %s", (hashed_key,))
+    client = cursor.fetchone()
+    if not client:
+        return jsonify({'error': 'Invalid API key'}), 403
+
+    cursor.execute("SELECT receiver, message, sent_at FROM outgoing_messages WHERE api_client_id = %s ORDER BY sent_at DESC", (client['id'],))
+    messages = cursor.fetchall()
+
+    return jsonify(messages), 200
+
+# run the app
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
