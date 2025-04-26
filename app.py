@@ -3,10 +3,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import mysql.connector
 import modem
 from datetime import datetime
-import time
 import secrets
 import hashlib
-import logging
 
 # create flask app
 app = Flask(__name__)
@@ -14,29 +12,16 @@ app = Flask(__name__)
 # app secret key for session management
 app.secret_key = secrets.token_hex(32)
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 # database connection
 def get_db_connection():
-    servers = [
-        "192.168.10.6", # master 1
-        "192.168.10.7"  # master 2
-    ]
-    for server in servers:
-        try:
-            conn = mysql.connector.connect(
-                host = server,
-                user = "atrait",
-                password = "atrait11!!",
-                database = "sms_gateway"
-                )
-            logger.info(f"Connected to MySQL at {server}")
-            return conn
-        except mysql.connector.Error as e:
-            logger.warning(f"Failed to connect to {server}: {e}")
-            continue
+    server = "192.168.10.6"
+    conn = mysql.connector.connect(
+            host = server,
+            user = "atrait",
+            password = "atrait11!!",
+            database = "sms_gateway"
+            )
+    return conn
 
 # redirect from root to login page
 @app.route("/")
@@ -223,7 +208,3 @@ def api_sent_sms():
     messages = cursor.fetchall()
 
     return jsonify(messages), 200
-
-# run the app
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
