@@ -1,4 +1,4 @@
-Private SMS Gateway : 
+Private SMS Gateway Platform : 
 - A private SMS gateway web application and REST API that enables users and external applications to send and receive SMS messages securely and privately through a GSM modem connected to a telecom network.
 
 Features : 
