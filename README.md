@@ -39,9 +39,9 @@ Admin users can manage accounts and API keys through the dashboard.
 The API key must be included in every request for authentication.
 
 Technologies Used :
-Frontend : HTML, CSS (Bootstrap 5)
-Backend : Python (Flask) 
-Database : MySQL
-Operating System : Linux (CentOS 9)
-Application Server : Gunicorn 
-Web Server : Nginx 
+- Frontend : HTML, CSS (Bootstrap 5)
+- Backend : Python (Flask) 
+- Database : MySQL
+- Operating System : Linux (CentOS 9)
+- Application Server : Gunicorn 
+- Web Server : Nginx 
