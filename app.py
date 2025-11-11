@@ -14,11 +14,11 @@ app.secret_key = secrets.token_hex(32)
 
 # database connection
 def get_db_connection():
-    server = "192.168.10.6"
+    server = "server-ip-address"
     conn = mysql.connector.connect(
             host = server,
-            user = "atrait",
-            password = "atrait11!!",
+            user = "user",
+            password = "password",
             database = "sms_gateway"
             )
     return conn
