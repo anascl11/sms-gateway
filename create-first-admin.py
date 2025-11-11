@@ -3,9 +3,9 @@ import mysql.connector
 
 # connect to DB
 conn = mysql.connector.connect(
-    host = "192.168.10.6",
-    user = "atrait",
-    password = "atrait11!!",
+    host = "server-ip-address",
+    user = "user",
+    password = "password",
     database = "sms_gateway"
 )
 cursor = conn.cursor()
@@ -18,3 +18,4 @@ cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (%s, %s,
 conn.commit()
 
 print("Admin user created.")
+
