@@ -1,7 +1,7 @@
 create database sms_gateway;
 
-create user 'atrait'@'%' identified by 'atrait11!!';
-grant all privileges on sms_gateway.* to 'atrait'@'%';
+create user 'user'@'%' identified by 'password';
+grant all privileges on sms_gateway.* to 'user'@'%';
 flush privileges;
 
 use sms_gateway;
@@ -38,3 +38,4 @@ create table outgoing_messages (
     foreign key (user_id) references users(id),
     foreign key (api_client_id) references api_clients(id)
 );
+
